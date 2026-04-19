@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyGuard — Focus Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+<style>
+:root {
+  --bg: #05050a;
+  --bg2: #0b0b12;
+  --bg3: #111119;
+  --border: rgba(255,255,255,0.07);
+  --text: #dcdce8;
+  --muted: #6666888;
+  --accent: #00d4aa;
+  --blue: #3d9fff;
+  --danger: #ff3355;
+  --warn: #ffaa00;
+  --ok: #00cc77;
+  --glass: rgba(255,255,255,0.025);
+  --r: 14px;
+  --rs: 8px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow-x:hidden}
+body{
+  font-family:'Oxanium',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(0,212,170,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,170,.025) 1px,transparent 1px);
+  background-size:44px 44px;
+  pointer-events:none;z-index:0;
+}
+.wrap{position:relative;z-index:1;max-width:860px;margin:0 auto;padding:16px 16px 80px}
+
+/* ─── HEADER ─── */
+.header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 20px;
+  background:var(--glass);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  margin-bottom:16px;
+  backdrop-filter:blur(12px);
+  gap:12px;flex-wrap:wrap;
+}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-mark{
+  width:34px;height:34px;background:var(--accent);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 0 20px rgba(0,212,170,.35);
+}
+.logo-name{font-size:18px;font-weight:800;letter-spacing:3px}
+.logo-name span{color:var(--accent)}
+.header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.gemini-badge{
+  font-size:10px;font-weight:600;letter-spacing:1px;
+  padding:4px 10px;border-radius:20px;
+  border:1px solid rgba(61,159,255,.3);
+  color:#3d9fff;background:rgba(61,159,255,.06);
+  transition:all .3s;
+}
+.gemini-badge.on{color:var(--accent);border-color:rgba(0,212,170,.3);background:rgba(0,212,170,.06)}
+.status-pill{
+  display:flex;align-items:center;gap:7px;
+  padding:5px 14px;border-radius:20px;
+  font-size:10px;font-weight:700;letter-spacing:1.5px;
+  border:1px solid var(--border);color:rgba(255,255,255,.35);
+  transition:all .3s;
+}
+.status-pill.active{color:var(--ok);border-color:rgba(0,204,119,.3);background:rgba(0,204,119,.05)}
+.status-pill.alarm{color:var(--danger);border-color:rgba(255,51,85,.4);background:rgba(255,51,85,.1);animation:palarm .5s ease-in-out infinite alternate}
+@keyframes palarm{from{background:rgba(255,51,85,.05)}to{background:rgba(255,51,85,.18)}}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.dot.blink{animation:blink 1s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
+
+/* ─── GRID ─── */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+@media(max-width:580px){.grid2{grid-template-columns:1fr}}
+
+/* ─── PANEL ─── */
+.panel{
+  background:var(--glass);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:18px;
+  backdrop-filter:blur(10px);
+}
+.panel-hd{font-size:9px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,.35);text-transform:uppercase;margin-bottom:14px}
+
+/* ─── CAMERA ─── */
+.cam-wrap{
+  position:relative;background:#000;
+  border-radius:10px;overflow:hidden;aspect-ratio:4/3;
+}
+#vid{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#cvs{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1);pointer-events:none}
+.cam-msg{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:8px;background:rgba(0,0,0,.85);
+  color:rgba(255,255,255,.45);font-size:13px;
+}
+.cam-msg.hidden{display:none}
+.cam-msg-icon{font-size:28px}
+.loading-bar{
+  width:80%;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  animation:lbar 1.5s ease-in-out infinite;margin-top:6px;
+}
+@keyframes lbar{0%{transform:scaleX(0) translateX(-100%)}50%{transform:scaleX(1) translateX(0)}100%{transform:scaleX(0) translateX(100%)}}
+
+/* ─── STATUS CARDS ─── */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.card{
+  padding:12px 10px;border-radius:10px;
+  border:1px solid var(--border);background:rgba(0,0,0,.25);
+  transition:all .25s;
+}
+.card.ok{border-color:rgba(0,204,119,.15)}
+.card.warn{border-color:rgba(255,170,0,.3);background:rgba(255,170,0,.04)}
+.card.bad{border-color:rgba(255,51,85,.35);background:rgba(255,51,85,.07);animation:cshake .25s ease-in-out}
+@keyframes cshake{0%,100%{transform:translateX(0)}30%{transform:translateX(-3px)}70%{transform:translateX(3px)}}
+.card-ico{font-size:18px;margin-bottom:3px}
+.card-lbl{font-size:8px;color:rgba(255,255,255,.35);letter-spacing:1.5px;text-transform:uppercase}
+.card-val{font-size:11px;font-family:'JetBrains Mono',monospace;font-weight:500;margin-top:2px;transition:color .2s}
+.card-val.ok{color:var(--ok)}.card-val.warn{color:var(--warn)}.card-val.bad{color:var(--danger)}
+
+/* ─── TIMER BAR ─── */
+.timer-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 22px;
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--r);
+  margin-bottom:14px;flex-wrap:wrap;gap:14px;
+}
+.timer-num{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:300;letter-spacing:5px;color:var(--accent)}
+.timer-lbl{font-size:9px;color:rgba(255,255,255,.3);letter-spacing:2px;margin-bottom:3px}
+.btns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* ─── BUTTONS ─── */
+.btn{
+  padding:9px 18px;border-radius:8px;border:none;cursor:pointer;
+  font-family:'Oxanium',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;
+  transition:all .18s;
+}
+.btn:active{transform:scale(.96)}
+.btn:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+.btn-p{background:var(--accent);color:#000}.btn-p:hover{background:#00ffc8;box-shadow:0 0 18px rgba(0,212,170,.4)}
+.btn-d{background:var(--danger);color:#fff}.btn-d:hover{background:#ff5577;box-shadow:0 0 18px rgba(255,51,85,.4)}
+.btn-g{background:transparent;color:rgba(255,255,255,.45);border:1px solid var(--border)}.btn-g:hover{color:var(--text);border-color:rgba(255,255,255,.2)}
+.btn-warn{background:var(--warn);color:#000}
+.btn-pip{background:rgba(61,159,255,.1);color:var(--blue);border:1px solid rgba(61,159,255,.25)}.btn-pip:hover{background:rgba(61,159,255,.2)}
+
+/* ─── SETTINGS ─── */
+.settings{
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--r);
+  margin-bottom:14px;overflow:hidden;
+}
+.stg-hd{
+  width:100%;padding:14px 22px;background:transparent;border:none;
+  color:var(--text);font-family:'Oxanium',sans-serif;font-size:13px;font-weight:600;
+  letter-spacing:1px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+}
+.stg-hd:hover{background:rgba(255,255,255,.02)}
+.stg-body{padding:0 22px 22px;display:none}
+.stg-body.open{display:block}
+.stg-row{margin-bottom:18px}
+.stg-lbl{
+  font-size:10px;color:rgba(255,255,255,.4);letter-spacing:1.5px;text-transform:uppercase;
+  margin-bottom:8px;display:flex;align-items:center;gap:8px;
+}
+.stg-lbl a{color:var(--accent);text-decoration:none;font-size:9px}
+.input-row{display:flex;gap:8px}
+.inp{
+  flex:1;padding:9px 13px;
+  background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;
+  transition:border-color .2s;
+}
+.inp:focus{border-color:var(--accent)}
+.inp.good{border-color:var(--ok)}.inp.bad2{border-color:var(--danger)}
+.inp-note{font-size:10px;color:rgba(255,255,255,.3);margin-top:5px}
+.inp-note.g{color:var(--ok)}.inp-note.r{color:var(--danger)}
+.divider{height:1px;background:var(--border);margin:18px 0}
+.mode-row{display:flex;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.mode-btn{
+  flex:1;padding:9px 6px;background:transparent;border:none;
+  color:rgba(255,255,255,.4);font-family:'Oxanium',sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.5px;cursor:pointer;transition:all .2s;
+}
+.mode-btn.on{background:var(--accent);color:#000}
+.mode-desc{font-size:10px;color:rgba(255,255,255,.35);margin-top:6px;line-height:1.5}
+.alarm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.alarm-opt{
+  padding:10px 6px;border-radius:8px;border:1px solid var(--border);
+  background:rgba(0,0,0,.2);color:rgba(255,255,255,.4);font-family:'Oxanium',sans-serif;
+  font-size:10px;font-weight:700;cursor:pointer;text-align:center;transition:all .2s;
+}
+.alarm-opt.sel{border-color:var(--accent);color:var(--accent);background:rgba(0,212,170,.07)}
+.file-label{
+  display:flex;align-items:center;gap:10px;padding:9px 13px;
+  border:1px dashed rgba(255,255,255,.12);border-radius:8px;cursor:pointer;
+  color:rgba(255,255,255,.4);font-size:11px;transition:all .2s;
+}
+.file-label:hover{border-color:var(--accent);color:var(--accent)}
+.file-label input{display:none}
+.slide-row{display:flex;align-items:center;gap:10px}
+.slide-end{font-size:10px;color:rgba(255,255,255,.3);white-space:nowrap}
+input[type=range]{
+  flex:1;-webkit-appearance:none;height:2px;border-radius:2px;
+  background:rgba(255,255,255,.1);outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--accent);cursor:pointer;
+}
+.slide-val{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);min-width:28px;text-align:right}
+
+/* ─── CALIBRATION MODAL ─── */
+.overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.88);z-index:100;
+  align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);
+}
+.overlay.show{display:flex}
+.modal{
+  background:var(--bg2);border:1px solid var(--border);border-radius:18px;
+  padding:36px 32px;max-width:360px;width:90%;text-align:center;
+}
+.m-ico{font-size:44px;margin-bottom:14px}
+.m-title{font-size:20px;font-weight:700;margin-bottom:8px}
+.m-sub{font-size:13px;color:rgba(255,255,255,.45);margin-bottom:22px;line-height:1.6}
+.calib-count{
+  font-family:'JetBrains Mono',monospace;font-size:64px;
+  color:var(--accent);margin:16px 0;display:none;
+  text-shadow:0 0 30px rgba(0,212,170,.5);
+}
+.modal-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* ─── ALARM OVERLAY ─── */
+#alarmOverlay{
+  display:none;position:fixed;inset:0;z-index:150;
+  align-items:flex-end;justify-content:center;padding-bottom:32px;
+  pointer-events:none;
+}
+#alarmOverlay.show{
+  display:flex;
+  animation:aframe .5s ease-in-out infinite alternate;
+}
+@keyframes aframe{from{background:rgba(255,51,85,.06)}to{background:rgba(255,51,85,.16)}}
+.alarm-banner{
+  pointer-events:all;
+  background:linear-gradient(135deg,#ff2244,#cc0022);
+  color:#fff;padding:14px 28px;border-radius:50px;
+  font-size:15px;font-weight:700;letter-spacing:1px;
+  display:flex;align-items:center;gap:16px;
+  box-shadow:0 0 50px rgba(255,51,85,.55),0 4px 20px rgba(0,0,0,.5);
+}
+.alarm-close{
+  background:rgba(255,255,255,.2);border:none;color:#fff;
+  padding:6px 14px;border-radius:20px;cursor:pointer;
+  font-family:'Oxanium',sans-serif;font-size:11px;font-weight:700;
+  transition:background .2s;
+}
+.alarm-close:hover{background:rgba(255,255,255,.35)}
+
+/* ─── SNOOZE ─── */
+#snoozeBtn{
+  display:none;position:fixed;bottom:24px;left:24px;z-index:160;
+  padding:11px 22px;border-radius:50px;cursor:pointer;
+  background:rgba(255,170,0,.12);border:1px solid rgba(255,170,0,.4);
+  color:var(--warn);font-family:'Oxanium',sans-serif;
+  font-size:12px;font-weight:700;letter-spacing:1px;
+  transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,.4);
+}
+#snoozeBtn.show{display:block}
+#snoozeBtn:hover{background:rgba(255,170,0,.22)}
+
+/* ─── REPORT ─── */
+.report-box{background:var(--bg2);border:1px solid var(--border);border-radius:18px;padding:30px;max-width:400px;width:90%}
+.report-title{font-size:18px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+.report-stat{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:11px 0;border-bottom:1px solid var(--border);font-size:13px;
+}
+.report-stat:last-of-type{border-bottom:none}
+.report-val{font-family:'JetBrains Mono',monospace;font-size:18px;color:var(--accent);font-weight:600}
+
+/* ─── TOAST ─── */
+.toast{
+  position:fixed;bottom:24px;right:24px;
+  padding:10px 18px;border-radius:10px;font-size:12px;font-weight:700;
+  z-index:200;opacity:0;transform:translateY(8px);
+  transition:all .28s;pointer-events:none;
+}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.s{background:var(--ok);color:#000}
+.toast.e{background:var(--danger);color:#fff}
+.toast.i{background:var(--accent);color:#000}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-mark">🎯</div>
+    <div class="logo-name">STUDY<span>GUARD</span></div>
+  </div>
+  <div class="header-right">
+    <span class="gemini-badge" id="gBadge">⚡ AI: OFF</span>
+    <div class="status-pill" id="pill">
+      <div class="dot" id="pillDot"></div>
+      <span id="pillTxt">IDLE</span>
+    </div>
+  </div>
+</header>
+
+<!-- MAIN GRID -->
+<div class="grid2">
+  <!-- Camera -->
+  <div class="panel">
+    <div class="panel-hd">📹 Camera Feed</div>
+    <div class="cam-wrap">
+      <video id="vid" autoplay muted playsinline></video>
+      <canvas id="cvs"></canvas>
+      <div class="cam-msg" id="camMsg">
+        <div class="cam-msg-icon">📷</div>
+        <span id="camMsgTxt">Initializing camera...</span>
+        <div class="loading-bar" id="camBar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detection Status -->
+  <div class="panel">
+    <div class="panel-hd">🔍 Detection Status</div>
+    <div class="cards">
+      <div class="card" id="c-eyes">
+        <div class="card-ico">😴</div>
+        <div class="card-lbl">Eyes</div>
+        <div class="card-val" id="v-eyes">—</div>
+      </div>
+      <div class="card" id="c-yawn">
+        <div class="card-ico">🥱</div>
+        <div class="card-lbl">Yawning</div>
+        <div class="card-val" id="v-yawn">—</div>
+      </div>
+      <div class="card" id="c-post">
+        <div class="card-ico">🪑</div>
+        <div class="card-lbl">Posture</div>
+        <div class="card-val" id="v-post">—</div>
+      </div>
+      <div class="card" id="c-phone">
+        <div class="card-ico">📱</div>
+        <div class="card-lbl">Phone</div>
+        <div class="card-val" id="v-phone">—</div>
+      </div>
+      <div class="card" id="c-face">
+        <div class="card-ico">👤</div>
+        <div class="card-lbl">Face</div>
+        <div class="card-val" id="v-face">—</div>
+      </div>
+      <div class="card" id="c-ai">
+        <div class="card-ico">🤖</div>
+        <div class="card-lbl">AI Check</div>
+        <div class="card-val" id="v-ai">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TIMER BAR -->
+<div class="timer-bar">
+  <div>
+    <div class="timer-lbl">SESSION TIME</div>
+    <div class="timer-num" id="timerEl">00:00:00</div>
+  </div>
+  <div class="btns">
+    <button class="btn btn-g" id="calibBtn" disabled>🎯 Calibrate</button>
+    <button class="btn btn-p" id="startBtn" disabled>▶ START</button>
+    <button class="btn btn-d" id="stopBtn" style="display:none">⏹ STOP</button>
+    <button class="btn btn-pip" id="pipBtn" disabled title="Open floating window">⧉ Float</button>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="settings">
+  <button class="stg-hd" id="stgToggle">
+    <span>⚙️  Settings &amp; Configuration</span>
+    <span id="stgArrow">▼</span>
+  </button>
+  <div class="stg-body" id="stgBody">
+
+    <!-- API KEY -->
+    <div class="stg-row">
+      <div class="stg-lbl">🔑 Gemini API Key <a href="https://aistudio.google.com" target="_blank">(free at aistudio.google.com)</a></div>
+      <div class="input-row">
+        <input type="password" class="inp" id="apiInp" placeholder="AIzaSy..." autocomplete="off" spellcheck="false">
+        <button class="btn btn-g" id="testBtn">Test</button>
+        <button class="btn btn-p" id="saveBtn">Save</button>
+      </div>
+      <div class="inp-note" id="apiNote"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- MODE -->
+    <div class="stg-row">
+      <div class="stg-lbl">📖 Study Mode</div>
+      <div class="mode-row">
+        <button class="mode-btn on" id="mRead" onclick="setMode('reading')">📖 Reading / Screen</button>
+        <button class="mode-btn" id="mWrite" onclick="setMode('writing')">✍️ Writing</button>
+      </div>
+      <div class="mode-desc" id="mDesc">All detections active. Keep your head upright.</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ALARM -->
+    <div class="stg-row">
+      <div class="stg-lbl">🔔 Alarm Sound</div>
+      <div class="alarm-grid">
+        <button class="alarm-opt sel" id="a-beep" onclick="pickAlarm('beep')">📢 Loud Beep</button>
+        <button class="alarm-opt" id="a-siren" onclick="pickAlarm('siren')">🚨 Siren</button>
+        <button class="alarm-opt" id="a-horn" onclick="pickAlarm('horn')">📯 Airhorn</button>
+      </div>
+      <label class="file-label">
+        <input type="file" id="aUpload" accept="audio/*" onchange="uploadAlarm(this)">
+        <span>📁 Upload your own sound</span>
+        <span id="upName" style="color:var(--accent);font-size:10px"></span>
+      </label>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- SENSITIVITY -->
+    <div class="stg-row">
+      <div class="stg-lbl">👁 Eye Detection Sensitivity</div>
+      <div class="slide-row">
+        <span class="slide-end">Relaxed</span>
+        <input type="range" id="sEye" min="1" max="5" value="3" oninput="onSlide('eye',this.value)">
+        <span class="slide-end">Strict</span>
+        <span class="slide-val" id="sEyeV">3</span>
+      </div>
+    </div>
+    <div class="stg-row">
+      <div class="stg-lbl">⏱ Alert after (sec of continuous issue)</div>
+      <div class="slide-row">
+        <span class="slide-end">2s</span>
+        <input type="range" id="sDelay" min="2" max="10" value="3" oninput="onSlide('delay',this.value)">
+        <span class="slide-end">10s</span>
+        <span class="slide-val" id="sDelayV">3s</span>
+      </div>
+    </div>
+    <div class="stg-row">
+      <div class="stg-lbl">👤 Face gone alert after</div>
+      <div class="slide-row">
+        <span class="slide-end">3s</span>
+        <input type="range" id="sFace" min="3" max="20" value="6" oninput="onSlide('face',this.value)">
+        <span class="slide-end">20s</span>
+        <span class="slide-val" id="sFaceV">6s</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div><!-- /wrap -->
+
+<!-- ── CALIBRATION MODAL ── -->
+<div class="overlay" id="calibModal">
+  <div class="modal">
+    <div class="m-ico">🎯</div>
+    <div class="m-title">Calibrate Your Position</div>
+    <div class="m-sub">Sit in your normal study posture, look straight at the camera and click Start. Hold still for 3 seconds.</div>
+    <div class="calib-count" id="calibCount">3</div>
+    <div class="modal-btns">
+      <button class="btn btn-g" onclick="hideModal('calibModal')">Cancel</button>
+      <button class="btn btn-p" id="calibGoBtn" onclick="runCalib()">🎯 Start</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT MODAL ── -->
+<div class="overlay" id="reportModal">
+  <div class="report-box">
+    <div class="report-title">📊 Session Report</div>
+    <div class="report-stat"><span>⏱️ Total Time</span><span class="report-val" id="rTime">—</span></div>
+    <div class="report-stat"><span>😴 Sleep Alerts</span><span class="report-val" id="rSleep">—</span></div>
+    <div class="report-stat"><span>🥱 Yawn Alerts</span><span class="report-val" id="rYawn">—</span></div>
+    <div class="report-stat"><span>🪑 Posture Alerts</span><span class="report-val" id="rPost">—</span></div>
+    <div class="report-stat"><span>📱 Phone Alerts</span><span class="report-val" id="rPhone">—</span></div>
+    <div class="report-stat"><span>👤 Frame Exits</span><span class="report-val" id="rGone">—</span></div>
+    <button class="btn btn-p" style="width:100%;margin-top:18px" onclick="hideModal('reportModal')">Close</button>
+  </div>
+</div>
+
+<!-- ── ALARM OVERLAY ── -->
+<div id="alarmOverlay">
+  <div class="alarm-banner">
+    <span id="alarmMsg">⚠️ WAKE UP!</span>
+    <button class="alarm-close" onclick="dismissAlarm()">✕ Dismiss</button>
+  </div>
+</div>
+
+<!-- ── SNOOZE ── -->
+<button id="snoozeBtn" onclick="doSnooze()">💤 Snooze 2 min</button>
+
+<!-- ── TOAST ── -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  STUDYGUARD  —  Detection Engine
+// ═══════════════════════════════════════════════════════════
+
+// MediaPipe face landmark indices
+const EYE_L = [362,385,387,263,373,380];
+const EYE_R = [33,160,158,133,153,144];
+const MTH_T=13, MTH_B=14, MTH_L=78, MTH_R=308;
+const NOSE=4, L_CTR=159, R_CTR=386, CHIN=152, HEAD=10;
+
+// ── STATE ──────────────────────────────────────────────────
+const S = {
+  running:false, calibrated:false, mode:'reading',
+  baseline:{ ear:.30, postureY:0 },
+  sensitivity:3, alertDelay:3000, faceGoneSec:6000,
+
+  sleepFrames:0, yawnStart:null, faceGoneAt:null,
+  phoneSeenAt:null, lastGemini:0,
+
+  alarmOn:false, snoozeUntil:0, alarmReason:'',
+  sessionStart:null, timerTick:null,
+  stats:{ sleep:0, yawn:0, post:0, phone:0, gone:0 },
+
+  alarmSel:'beep', customBuf:null, audioCtx:null, alarmInterval:null,
+  geminiKey:'', pipWin:null,
+};
+
+let faceMesh=null, cocoModel=null, lastLM=null;
+
+// ── BOOT ──────────────────────────────────────────────────
+window.onload = async()=>{
+  // Restore saved settings
+  const k=localStorage.getItem('sg_key');
+  if(k){ S.geminiKey=k; document.getElementById('apiInp').value=k; setGBadge(true); }
+  const m=localStorage.getItem('sg_mode')||'reading';
+  setMode(m,true);
+  // Settings toggle
+  document.getElementById('stgToggle').onclick=()=>{
+    const b=document.getElementById('stgBody');
+    b.classList.toggle('open');
+    document.getElementById('stgArrow').textContent=b.classList.contains('open')?'▲':'▼';
+  };
+  // Buttons
+  document.getElementById('calibBtn').onclick=()=>showModal('calibModal');
+  document.getElementById('startBtn').onclick=startSession;
+  document.getElementById('stopBtn').onclick=stopSession;
+  document.getElementById('pipBtn').onclick=openPip;
+  document.getElementById('saveBtn').onclick=saveKey;
+  document.getElementById('testBtn').onclick=testKey;
+  // Wake AudioCtx on first tap
+  document.body.addEventListener('click',()=>{ if(!S.audioCtx) S.audioCtx=new(window.AudioContext||window.webkitAudioContext)(); },{once:true});
+
+  await initCamera();
+};
+
+// ── CAMERA + MEDIAPIPE ────────────────────────────────────
+async function initCamera(){
+  setCamMsg('Requesting camera access...',true);
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}}});
+    const v=document.getElementById('vid');
+    v.srcObject=stream;
+    await new Promise(r=>v.onloadedmetadata=r);
+    setCamMsg('Loading AI models...',true);
+    await initFaceMesh();
+    hideCamMsg();
+    document.getElementById('calibBtn').disabled=false;
+    document.getElementById('startBtn').disabled=false;
+    toast('Camera ready ✓','s');
+    cocoSsd.load({base:'lite_mobilenet_v2'}).then(m=>{cocoModel=m;}).catch(()=>{});
+  } catch(e){
+    setCamMsg('❌ Camera access denied',false);
+    toast('Camera denied','e');
+  }
+}
+
+function initFaceMesh(){
+  return new Promise((res,rej)=>{
+    faceMesh=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+    faceMesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+    faceMesh.onResults(onFace);
+    faceMesh.initialize().then(()=>{
+      loopFace();
+      res();
+    }).catch(e=>{ console.warn('FaceMesh failed',e); rej(e); });
+  });
+}
+
+function loopFace(){
+  const v=document.getElementById('vid');
+  (async function tick(){
+    if(v.readyState>=2) await faceMesh.send({image:v}).catch(()=>{});
+    requestAnimationFrame(tick);
+  })();
+  setInterval(detectPhone,3200);
+}
+
+// ── FACE MESH RESULTS ─────────────────────────────────────
+function onFace(r){
+  const cvs=document.getElementById('cvs');
+  const ctx=cvs.getContext('2d');
+  const v=document.getElementById('vid');
+  cvs.width=v.videoWidth; cvs.height=v.videoHeight;
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+
+  if(!r.multiFaceLandmarks||r.multiFaceLandmarks.length===0){
+    lastLM=null;
+    if(S.running) checkFaceGone();
+    setCard('face','bad','NOT FOUND');
+    return;
+  }
+  const lm=r.multiFaceLandmarks[0];
+  lastLM=lm;
+  S.faceGoneAt=null;
+  setCard('face','ok','DETECTED');
+  drawDots(ctx,lm,cvs.width,cvs.height);
+  if(!S.running||Date.now()<S.snoozeUntil) return;
+  const ear=calcEAR(lm), mar=calcMAR(lm), post=calcPost(lm);
+  checkEyes(ear);
+  checkYawn(mar);
+  if(S.mode==='reading') checkPost(post);
+  else setCard('post','ok','WRITING MODE');
+}
+
+function drawDots(ctx,lm,w,h){
+  ctx.fillStyle='rgba(0,212,170,.5)';
+  [EYE_L[0],EYE_L[3],EYE_R[0],EYE_R[3],NOSE,CHIN,HEAD,MTH_L,MTH_R].forEach(i=>{
+    if(!lm[i]) return;
+    ctx.beginPath();
+    ctx.arc(lm[i].x*w,lm[i].y*h,2.5,0,Math.PI*2);
+    ctx.fill();
+  });
+}
+
+// ── METRICS ───────────────────────────────────────────────
+const d2=(a,b)=>Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2);
+
+function calcEAR(lm){
+  const e=p=>(d2(lm[p[1]],lm[p[5]])+d2(lm[p[2]],lm[p[4]]))/(2*d2(lm[p[0]],lm[p[3]]));
+  return(e(EYE_L)+e(EYE_R))/2;
+}
+function calcMAR(lm){
+  return d2(lm[MTH_T],lm[MTH_B])/d2(lm[MTH_L],lm[MTH_R]);
+}
+function calcPost(lm){
+  const eyeMidY=(lm[L_CTR].y+lm[R_CTR].y)/2;
+  const fh=d2(lm[CHIN],lm[HEAD]);
+  return(lm[NOSE].y-eyeMidY)/(fh||.001);
+}
+
+// ── EYE / SLEEP ───────────────────────────────────────────
+function checkEyes(ear){
+  const sens=S.sensitivity;
+  const thresh=.22-(sens-.3)*.012;       // strict → lower threshold
+  const suspLo=thresh-.03, suspHi=thresh+.04;
+  const alertF=Math.floor((S.alertDelay/1000)*14);
+
+  if(ear<suspLo){
+    S.sleepFrames++;
+    setCard('eyes','warn',`EAR ${ear.toFixed(3)}`);
+    if(S.sleepFrames>=alertF){
+      fireAlarm('sleep','😴 Wake up! Eyes closed!');
+      S.stats.sleep++;
+      S.sleepFrames=0;
+    }
+  } else if(ear<=suspHi){
+    S.sleepFrames=Math.max(0,S.sleepFrames-1);
+    setCard('eyes','warn',`EAR ${ear.toFixed(3)} ?`);
+    geminiCheck('Eyes appear half-closed or drooping. Is the person sleeping or just reading?');
+  } else {
+    S.sleepFrames=Math.max(0,S.sleepFrames-2);
+    setCard('eyes','ok',`EAR ${ear.toFixed(3)}`);
+  }
+}
+
+// ── YAWN ─────────────────────────────────────────────────
+function checkYawn(mar){
+  const T=.48, suspT=.40;
+  if(mar>T){
+    if(!S.yawnStart) S.yawnStart=Date.now();
+    const dur=Date.now()-S.yawnStart;
+    setCard('yawn',dur>800?'bad':'warn',`MAR ${mar.toFixed(3)}`);
+    if(dur>1500){
+      fireAlarm('yawn','🥱 You yawned! Stay focused!');
+      S.stats.yawn++;
+      S.yawnStart=null;
+    }
+  } else if(mar>suspT){
+    setCard('yawn','warn',`MAR ${mar.toFixed(3)} ?`);
+    geminiCheck('Person's mouth is slightly open. Are they yawning or just breathing through mouth?');
+    S.yawnStart=null;
+  } else {
+    setCard('yawn','ok',`MAR ${mar.toFixed(3)}`);
+    S.yawnStart=null;
+  }
+}
+
+// ── POSTURE ───────────────────────────────────────────────
+function checkPost(pv){
+  if(!S.calibrated){ setCard('post','warn','CALIBRATE'); return; }
+  const delta=pv-S.baseline.postureY;
+  const T=.08;
+  if(Math.abs(delta)>T*1.6){
+    setCard('post','bad','BAD POSTURE');
+    fireAlarm('post','🪑 Fix your posture!');
+    S.stats.post++;
+  } else if(Math.abs(delta)>T){
+    setCard('post','warn','CHECK POSTURE');
+    geminiCheck('Persons head seems tilted or posture changed. Are they still studying normally?');
+  } else {
+    setCard('post','ok','GOOD');
+  }
+}
+
+// ── FACE GONE ─────────────────────────────────────────────
+function checkFaceGone(){
+  if(!S.faceGoneAt){ S.faceGoneAt=Date.now(); return; }
+  const el=Date.now()-S.faceGoneAt;
+  if(el>S.faceGoneSec){
+    fireAlarm('gone','👤 Come back! You left the frame!');
+    S.stats.gone++;
+    S.faceGoneAt=null;
+  }
+  setCard('face','bad',`GONE ${Math.floor(el/1000)}s`);
+}
+
+// ── PHONE ─────────────────────────────────────────────────
+async function detectPhone(){
+  if(!cocoModel||!S.running||!lastLM) return;
+  if(Date.now()<S.snoozeUntil) return;
+  try{
+    const preds=await cocoModel.detect(document.getElementById('vid'));
+    const phone=preds.find(p=>p.class==='cell phone'&&p.score>.5);
+    if(phone){
+      if(!S.phoneSeenAt) S.phoneSeenAt=Date.now();
+      const el=Date.now()-S.phoneSeenAt;
+      if(el>3000){
+        setCard('phone','bad','PHONE DETECTED');
+        fireAlarm('phone','📱 Put the phone down!');
+        S.stats.phone++;
+        S.phoneSeenAt=null;
+      } else {
+        setCard('phone','warn','Checking...');
+      }
+    } else {
+      S.phoneSeenAt=null;
+      setCard('phone','ok','CLEAR');
+    }
+  } catch(e){}
+}
+
+// ── GEMINI AI CHECK ───────────────────────────────────────
+async function geminiCheck(situation){
+  if(!S.geminiKey) return;
+  const now=Date.now();
+  if(now-S.lastGemini<8000) return;
+  S.lastGemini=now;
+
+  const v=document.getElementById('vid');
+  const tmp=document.createElement('canvas');
+  tmp.width=320; tmp.height=240;
+  tmp.getContext('2d').drawImage(v,0,0,320,240);
+  const b64=tmp.toDataURL('image/jpeg',.65).split(',')[1];
+
+  setCard('ai','warn','CHECKING...');
+  try{
+    const res=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${S.geminiKey}`,
+      {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          contents:[{parts:[
+            {inline_data:{mime_type:'image/jpeg',data:b64}},
+            {text:`Study focus monitor. Mode: ${S.mode==='writing'?'Writing (head down is normal)':'Reading/Screen'}.
+Situation: ${situation}
+Is this person focused on studying? Reply ONLY in JSON (no markdown):
+{"focused":true/false,"confidence":0-100,"reason":"max 8 words"}`}
+          ]}]
+        })
+      }
+    );
+    const data=await res.json();
+    const txt=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    let result;
+    try{ result=JSON.parse(txt.replace(/```json|```/g,'').trim()); }
+    catch{ const m=txt.match(/\{[^}]+\}/); if(m) result=JSON.parse(m[0]); }
+    if(result){
+      if(!result.focused&&result.confidence>70){
+        setCard('ai','bad',`⚠ ${result.reason||'Distracted'}`);
+        fireAlarm('ai',`🤖 AI: ${result.reason||'You seem distracted!'}`);
+      } else if(!result.focused&&result.confidence>50){
+        setCard('ai','warn',`? ${result.reason||'Unsure'}`);
+      } else {
+        setCard('ai','ok',`✓ ${result.reason||'Focused'}`);
+      }
+    }
+  } catch(e){ setCard('ai','warn','ERR'); }
+}
+
+// ── ALARM SYSTEM ──────────────────────────────────────────
+function fireAlarm(type,msg){
+  if(S.alarmOn) return;
+  if(Date.now()<S.snoozeUntil) return;
+  S.alarmOn=true; S.alarmReason=type;
+  document.getElementById('alarmMsg').textContent=msg;
+  document.getElementById('alarmOverlay').classList.add('show');
+  document.getElementById('snoozeBtn').classList.add('show');
+  const p=document.getElementById('pill');
+  p.className='status-pill alarm';
+  document.getElementById('pillTxt').textContent='ALARM';
+  if(!S.audioCtx) S.audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  playAlarm();
+  refreshPip();
+}
+
+function dismissAlarm(){
+  S.alarmOn=false; S.sleepFrames=0; S.yawnStart=null;
+  document.getElementById('alarmOverlay').classList.remove('show');
+  document.getElementById('snoozeBtn').classList.remove('show');
+  stopAlarm();
+  if(S.running){
+    const p=document.getElementById('pill');
+    p.className='status-pill active';
+    document.getElementById('pillTxt').textContent='MONITORING';
+  }
+  refreshPip();
+}
+
+function doSnooze(){
+  S.snoozeUntil=Date.now()+2*60*1000;
+  dismissAlarm();
+  toast('Snoozed 2 min 💤','i');
+}
+
+function playAlarm(){
+  stopAlarm();
+  if(S.alarmSel==='custom'&&S.customBuf){
+    const src=S.audioCtx.createBufferSource();
+    src.buffer=S.customBuf; src.loop=true;
+    src.connect(S.audioCtx.destination); src.start();
+    S._customSrc=src; return;
+  }
+  const ctx=S.audioCtx;
+  if(S.alarmSel==='beep'){
+    S.alarmInterval=setInterval(()=>{
+      if(!S.alarmOn){ clearInterval(S.alarmInterval); return; }
+      const o=ctx.createOscillator(),g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);
+      o.type='square'; o.frequency.value=900;
+      g.gain.setValueAtTime(.7,ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.28);
+      o.start(ctx.currentTime); o.stop(ctx.currentTime+.28);
+    },450);
+  } else if(S.alarmSel==='siren'){
+    S.alarmInterval=setInterval(()=>{
+      if(!S.alarmOn){ clearInterval(S.alarmInterval); return; }
+      const o=ctx.createOscillator(),g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);
+      o.type='sawtooth'; g.gain.value=.5;
+      o.frequency.setValueAtTime(350,ctx.currentTime);
+      o.frequency.linearRampToValueAtTime(800,ctx.currentTime+.5);
+      o.frequency.linearRampToValueAtTime(350,ctx.currentTime+1.0);
+      o.start(ctx.currentTime); o.stop(ctx.currentTime+1.0);
+    },1100);
+  } else if(S.alarmSel==='horn'){
+    S.alarmInterval=setInterval(()=>{
+      if(!S.alarmOn){ clearInterval(S.alarmInterval); return; }
+      [220,276,330].forEach((f,i)=>{
+        const o=ctx.createOscillator(),g=ctx.createGain();
+        o.connect(g);g.connect(ctx.destination);
+        o.type='sawtooth'; o.frequency.value=f;
+        const t=ctx.currentTime+i*.08;
+        g.gain.setValueAtTime(.4,t);
+        g.gain.exponentialRampToValueAtTime(.001,t+.4);
+        o.start(t); o.stop(t+.4);
+      });
+    },900);
+  }
+}
+
+function stopAlarm(){
+  if(S.alarmInterval){ clearInterval(S.alarmInterval); S.alarmInterval=null; }
+  if(S._customSrc){ try{S._customSrc.stop();}catch(e){} S._customSrc=null; }
+}
+
+// ── SESSION ───────────────────────────────────────────────
+async function startSession(){
+  S.running=true;
+  S.sessionStart=Date.now();
+  S.stats={sleep:0,yawn:0,post:0,phone:0,gone:0};
+  S.alarmOn=false; S.snoozeUntil=0;
+
+  document.getElementById('startBtn').style.display='none';
+  document.getElementById('stopBtn').style.display='';
+  document.getElementById('calibBtn').disabled=true;
+  document.getElementById('pipBtn').disabled=false;
+
+  if('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(()=>{});
+
+  S.timerTick=setInterval(tickTimer,1000);
+
+  const p=document.getElementById('pill');
+  p.className='status-pill active';
+  document.getElementById('pillTxt').textContent='MONITORING';
+  document.getElementById('pillDot').classList.add('blink');
+
+  if(!S.calibrated) toast('Tip: Calibrate for better posture detection 🎯','i');
+  else toast('Session started! Stay focused 💪','s');
+}
+
+function stopSession(){
+  S.running=false;
+  clearInterval(S.timerTick);
+  dismissAlarm();
+
+  document.getElementById('stopBtn').style.display='none';
+  document.getElementById('startBtn').style.display='';
+  document.getElementById('calibBtn').disabled=false;
+  document.getElementById('pipBtn').disabled=true;
+
+  const p=document.getElementById('pill');
+  p.className='status-pill';
+  document.getElementById('pillTxt').textContent='IDLE';
+  document.getElementById('pillDot').classList.remove('blink');
+
+  showReport();
+}
+
+function tickTimer(){
+  const el=Math.floor((Date.now()-S.sessionStart)/1000);
+  const h=Math.floor(el/3600).toString().padStart(2,'0');
+  const m=Math.floor((el%3600)/60).toString().padStart(2,'0');
+  const sc=(el%60).toString().padStart(2,'0');
+  document.getElementById('timerEl').textContent=`${h}:${m}:${sc}`;
+  refreshPip();
+}
+
+// ── CALIBRATION ───────────────────────────────────────────
+async function runCalib(){
+  const btn=document.getElementById('calibGoBtn');
+  const cnt=document.getElementById('calibCount');
+  btn.disabled=true;
+  cnt.style.display='block';
+  for(let i=3;i>=1;i--){ cnt.textContent=i; await wait(1000); }
+  cnt.textContent='✓';
+  if(lastLM){
+    S.baseline.ear=calcEAR(lastLM);
+    S.baseline.postureY=calcPost(lastLM);
+    S.calibrated=true;
+    await wait(600);
+    hideModal('calibModal');
+    toast('Calibration done ✓','s');
+  } else {
+    cnt.textContent='✗';
+    await wait(600);
+    hideModal('calibModal');
+    toast('No face detected! Try again.','e');
+  }
+  btn.disabled=false;
+  cnt.style.display='none';
+}
+
+// ── PIP WINDOW ────────────────────────────────────────────
+async function openPip(){
+  if(!('documentPictureInPicture' in window)){
+    toast('PiP needs Chrome 116+. Trying popup...','i');
+    openPopup(); return;
+  }
+  if(S.pipWin&&!S.pipWin.closed){ S.pipWin.close(); S.pipWin=null; document.getElementById('pipBtn').textContent='⧉ Float'; return; }
+  try{
+    const pw=await window.documentPictureInPicture.requestWindow({width:210,height:130,disallowReturnToOpener:false});
+    S.pipWin=pw;
+    buildPip(pw);
+    pw.addEventListener('pagehide',()=>{ S.pipWin=null; document.getElementById('pipBtn').textContent='⧉ Float'; });
+    document.getElementById('pipBtn').textContent='⧉ Close';
+    toast('Floating window open! ⧉','s');
+  } catch(e){ console.warn(e); toast('PiP failed — try Chrome','e'); }
+}
+
+function openPopup(){
+  const pw=window.open('','StudyGuardPiP','width=220,height=140,resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no');
+  if(!pw){ toast('Popup blocked','e'); return; }
+  S.pipWin=pw;
+  buildPip(pw);
+}
+
+function buildPip(pw){
+  pw.document.head.innerHTML=`<style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#05050a;color:#dcdce8;font-family:system-ui,sans-serif;
+      height:100vh;display:flex;flex-direction:column;justify-content:space-between;
+      padding:8px 10px;overflow:hidden;user-select:none}
+    .top{display:flex;justify-content:space-between;align-items:center}
+    .sg{font-size:9px;font-weight:900;letter-spacing:3px;color:#00d4aa}
+    .tm{font-size:12px;font-family:monospace;letter-spacing:2px;color:#dcdce8}
+    .dots{display:flex;gap:7px;justify-content:center;padding:4px 0}
+    .d{display:flex;flex-direction:column;align-items:center;gap:2px}
+    .dc{width:13px;height:13px;border-radius:50%}
+    .dl{font-size:7px;opacity:.45}
+    .ok{background:#00cc77}.warn{background:#ffaa00}
+    .bad{background:#ff3355;animation:p .5s ease-in-out infinite alternate}
+    @keyframes p{from{opacity:1}to{opacity:.25}}
+    .bot{display:flex;gap:5px}
+    .pb{flex:1;padding:4px;border-radius:6px;border:none;cursor:pointer;font-size:10px;font-weight:700}
+    .dis{background:#ff3355;color:#fff;display:none}
+    .sn{background:rgba(255,170,0,.18);color:#ffaa00;border:1px solid #ffaa00;display:none}
+    .on{display:block!important}
+    body.al{background:rgba(255,30,50,.14)}
+  </style>`;
+  pw.document.body.innerHTML=`
+    <div class="top"><span class="sg">STUDYGUARD</span><span class="tm" id="t">00:00:00</span></div>
+    <div class="dots">
+      <div class="d"><div class="dc ok" id="p-eyes"></div><span class="dl">👁</span></div>
+      <div class="d"><div class="dc ok" id="p-yawn"></div><span class="dl">🥱</span></div>
+      <div class="d"><div class="dc ok" id="p-post"></div><span class="dl">🪑</span></div>
+      <div class="d"><div class="dc ok" id="p-phone"></div><span class="dl">📱</span></div>
+      <div class="d"><div class="dc ok" id="p-face"></div><span class="dl">👤</span></div>
+    </div>
+    <div class="bot">
+      <button class="pb dis" id="p-dis">✕ Dismiss</button>
+      <button class="pb sn" id="p-sn">💤 Snooze</button>
+    </div>`;
+  // Wire up pip buttons
+  pw.document.getElementById('p-dis').addEventListener('click',()=>dismissAlarm());
+  pw.document.getElementById('p-sn').addEventListener('click',()=>doSnooze());
+  refreshPip();
+}
+
+function refreshPip(){
+  if(!S.pipWin||S.pipWin.closed) return;
+  const d=S.pipWin.document;
+  const t=d.getElementById('t');
+  if(t) t.textContent=document.getElementById('timerEl').textContent;
+
+  const map={eyes:'p-eyes',yawn:'p-yawn',post:'p-post',phone:'p-phone',face:'p-face'};
+  Object.entries(map).forEach(([k,pid])=>{
+    const src=document.getElementById(`c-${k}`);
+    const el=d.getElementById(pid);
+    if(!src||!el) return;
+    el.className='dc '+(src.classList.contains('bad')?'bad':src.classList.contains('warn')?'warn':'ok');
+  });
+
+  const dis=d.getElementById('p-dis'),sn=d.getElementById('p-sn');
+  if(dis) dis.className='pb dis'+(S.alarmOn?' on':'');
+  if(sn) sn.className='pb sn'+(S.alarmOn?' on':'');
+  if(S.alarmOn) d.body.classList.add('al'); else d.body.classList.remove('al');
+}
+
+// ── SETTINGS ─────────────────────────────────────────────
+function setMode(m,silent=false){
+  S.mode=m;
+  localStorage.setItem('sg_mode',m);
+  document.getElementById('mRead').classList.toggle('on',m==='reading');
+  document.getElementById('mWrite').classList.toggle('on',m==='writing');
+  document.getElementById('mDesc').textContent=m==='writing'
+    ?'✍️ Writing mode: Posture OFF. Only eyes, yawn & phone monitored.'
+    :'📖 Reading mode: All detections active. Keep head upright.';
+  if(!silent) toast(m==='writing'?'Writing mode ✍️':'Reading mode 📖','i');
+}
+
+function pickAlarm(t){
+  S.alarmSel=t;
+  document.querySelectorAll('.alarm-opt').forEach(e=>e.classList.remove('sel'));
+  document.getElementById(`a-${t}`)?.classList.add('sel');
+}
+
+async function uploadAlarm(inp){
+  const f=inp.files[0]; if(!f) return;
+  if(!S.audioCtx) S.audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  const ab=await f.arrayBuffer();
+  S.customBuf=await S.audioCtx.decodeAudioData(ab);
+  S.alarmSel='custom';
+  document.querySelectorAll('.alarm-opt').forEach(e=>e.classList.remove('sel'));
+  document.getElementById('upName').textContent=f.name;
+  toast('Custom alarm loaded ✓','s');
+}
+
+function onSlide(t,v){
+  if(t==='eye'){ S.sensitivity=+v; document.getElementById('sEyeV').textContent=v; }
+  if(t==='delay'){ S.alertDelay=+v*1000; document.getElementById('sDelayV').textContent=v+'s'; }
+  if(t==='face'){ S.faceGoneSec=+v*1000; document.getElementById('sFaceV').textContent=v+'s'; }
+}
+
+async function saveKey(){
+  const k=document.getElementById('apiInp').value.trim();
+  if(!k){ toast('Enter a key first','e'); return; }
+  S.geminiKey=k;
+  localStorage.setItem('sg_key',k);
+  setGBadge(true);
+  toast('API key saved ✓','s');
+}
+
+async function testKey(){
+  const k=document.getElementById('apiInp').value.trim();
+  if(!k){ toast('Enter a key first','e'); return; }
+  document.getElementById('apiNote').textContent='Testing...';
+  document.getElementById('apiNote').className='inp-note';
+  try{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${k}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:'Reply with just: ok'}]}]})
+    });
+    const d=await r.json();
+    if(d.candidates){
+      document.getElementById('apiInp').className='inp good';
+      document.getElementById('apiNote').textContent='✓ Key is valid!';
+      document.getElementById('apiNote').className='inp-note g';
+    } else throw new Error();
+  } catch {
+    document.getElementById('apiInp').className='inp bad2';
+    document.getElementById('apiNote').textContent='✗ Invalid or quota exceeded';
+    document.getElementById('apiNote').className='inp-note r';
+  }
+}
+
+function setGBadge(on){
+  const el=document.getElementById('gBadge');
+  el.textContent=on?'⚡ AI: ON':'⚡ AI: OFF';
+  el.className='gemini-badge'+(on?' on':'');
+}
+
+// ── REPORT ────────────────────────────────────────────────
+function showReport(){
+  const el=Math.floor((Date.now()-S.sessionStart)/1000);
+  const fmt=s=>`${Math.floor(s/3600).toString().padStart(2,'0')}:${Math.floor((s%3600)/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;
+  document.getElementById('rTime').textContent=fmt(el);
+  document.getElementById('rSleep').textContent=S.stats.sleep;
+  document.getElementById('rYawn').textContent=S.stats.yawn;
+  document.getElementById('rPost').textContent=S.stats.post;
+  document.getElementById('rPhone').textContent=S.stats.phone;
+  document.getElementById('rGone').textContent=S.stats.gone;
+  showModal('reportModal');
+}
+
+// ── UI HELPERS ────────────────────────────────────────────
+function setCard(id,cls,txt){
+  const c=document.getElementById(`c-${id}`);
+  const v=document.getElementById(`v-${id}`);
+  if(!c||!v) return;
+  c.className=`card ${cls}`;
+  v.className=`card-val ${cls}`;
+  v.textContent=txt;
+  if(cls==='bad'||cls==='warn') refreshPip();
+}
+
+function setCamMsg(txt,loading){
+  document.getElementById('camMsgTxt').textContent=txt;
+  document.getElementById('camBar').style.display=loading?'':'none';
+}
+function hideCamMsg(){ document.getElementById('camMsg').classList.add('hidden'); }
+
+function showModal(id){ document.getElementById(id).classList.add('show'); }
+function hideModal(id){ document.getElementById(id).classList.remove('show'); }
+
+function toast(msg,type='i'){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className=`toast ${type} show`;
+  setTimeout(()=>el.className='toast',3000);
+}
+
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+</script>
+</body>
+</html>
