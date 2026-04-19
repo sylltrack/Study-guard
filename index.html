@@ -895,12 +895,12 @@ function checkEyes(ear){
 }
 
 function checkYawn(mar){
-  if(mar>.40){
+  if(mar>.26){
     if(!S.yawnStart) S.yawnStart=Date.now();
     var dur=Date.now()-S.yawnStart;
     setCard('yawn',dur>800?'bad':'warn','MAR '+mar.toFixed(3));
-    if(dur>1000){fireAlarm('yawn','🥱 Yawn detected! Stay alert!');S.stats.yawn++;S.yawnStart=null;}
-  }else if(mar>.40){
+    if(dur>300){fireAlarm('yawn','🥱 Yawn detected! Stay alert!');S.stats.yawn++;S.yawnStart=null;}
+  }else if(mar>.26){
     setCard('yawn','warn','MAR '+mar.toFixed(3));
     S.yawnStart=null;
   }else{
